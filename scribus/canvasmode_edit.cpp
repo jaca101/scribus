@@ -614,7 +614,10 @@ void CanvasMode_Edit::mousePressEvent(QMouseEvent *m)
 				if (SeleItem(m))
 				{
 					currItem = m_doc->m_Selection->itemAt(0);
-					if ((currItem->isTextFrame()) || (currItem->isImageFrame()))
+					// Only text frames keep content editing when clicked from another frame.
+					// Image frames go back to normal mode so a drag moves the frame rather than
+					// the image offset; image content editing is still entered by double click.
+					if (currItem->isTextFrame())
 					{
 						m_view->requestMode(modeEdit);
 						wantNormal = false;
