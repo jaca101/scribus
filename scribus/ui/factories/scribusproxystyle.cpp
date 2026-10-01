@@ -243,8 +243,8 @@ bool ScribusProxyStyle::eventFilter(QObject *object, QEvent *event)
 	{
 		if (PrefsManager::instance().appPrefs.uiPrefs.stylePalette == "auto" && !blockRefresh)
 			setApplicationTheme(ScribusProxyStyle::ApplicationTheme::System);
-
-		return true;
+		// Don't consume the event: QGuiApplication forwards ThemeChange from qApp to every
+		// window, which is how widgets get re-polished and repainted for the new theme.
 	}
 
 	return QObject::eventFilter(object, event);
