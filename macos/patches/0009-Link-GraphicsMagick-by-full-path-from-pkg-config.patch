@@ -1,0 +1,47 @@
+From 76b178e76f01d963d3a7a53a8673c520717c8521 Mon Sep 17 00:00:00 2001
+From: Javier Catania <jaca101@gmail.com>
+Date: Thu, 1 Oct 2026 12:44:17 +0200
+Subject: [PATCH 9/9] Link GraphicsMagick by full path from pkg-config
+
+With WANT_GRAPHICSMAGICK, the executable linked ${GMAGICK_LIBRARIES},
+which pkg_check_modules() fills with bare library names
+("GraphicsMagick"), and tried to add the library directory with
+link_directories(${GMAGICK_LIBRARY}), a variable pkg_check_modules()
+never sets. Linking therefore only worked when GraphicsMagick lives in a
+default linker path; with Homebrew on macOS (/opt/homebrew/lib) it failed
+with "library 'GraphicsMagick' not found".
+
+Link ${GMAGICK_LINK_LIBRARIES} (full paths, CMake >= 3.12) and drop the
+ineffective link_directories() call.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ scribus/CMakeLists.txt | 5 +----
+ 1 file changed, 1 insertion(+), 4 deletions(-)
+
+diff --git a/scribus/CMakeLists.txt b/scribus/CMakeLists.txt
+index 1dafac139..f5166a5b0 100644
+--- a/scribus/CMakeLists.txt
++++ b/scribus/CMakeLists.txt
+@@ -106,9 +106,6 @@ if (GMAGICK_FOUND)
+ 	include_directories(
+ 		BEFORE ${GMAGICK_INCLUDE_DIRS}
+ 	)
+-	link_directories(
+-		${GMAGICK_LIBRARY}
+-	)
+ endif()
+ 
+ if(HAVE_PODOFO)
+@@ -229,7 +226,7 @@ target_link_libraries(${EXE_NAME}
+ 	PRIVATE
+ 	${CUPS_LIBRARIES}
+ 	${FREETYPE_LIBRARIES}
+-	${GMAGICK_LIBRARIES}
++	${GMAGICK_LINK_LIBRARIES}
+ 	${HARFBUZZ_LIBRARIES}
+ 	${HARFBUZZ_SUBSET_LIBRARIES}
+ 	${hunspell_LIBRARIES}
+-- 
+2.54.0 (Apple Git-157)
+

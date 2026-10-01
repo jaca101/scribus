@@ -1,0 +1,108 @@
+From fac896eefcd3b5f4ed4dc2e082b170829bffdd54 Mon Sep 17 00:00:00 2001
+From: Javier Catania <jaca101@gmail.com>
+Date: Thu, 1 Oct 2026 12:44:16 +0200
+Subject: [PATCH 6/9] Follow system theme changes with the default scratch
+ space color
+
+The scratch space color (canvas background and the page palette grid)
+defaults to the palette Window color. #17952 made it follow a theme set
+in Preferences, but a system light/dark switch in "auto" mode left it on
+the previous theme: by the time ScribusProxyStyle::setApplicationTheme()
+runs from the ThemeChange filter, Qt has already replaced the palette, so
+the old Window color is no longer available to recognise the default,
+and nothing repaints the views or the page grid.
+
+In the main window's PaletteChange handler, remember the previous Window
+color; if the scratch color still matches it (or already matches the new
+one), switch it to the new Window color and repaint the page grid and the
+document views, as slotPrefsOrg() does. A custom scratch color is left
+alone.
+
+Also resend PaletteChange to each QMdiSubWindow there: it caches its
+title bar palette on PaletteChange, and after starting in dark mode and
+switching to light the document title bar otherwise stayed dark.
+
+Verified on macOS 26 starting in dark and in light mode and switching
+both ways: canvas background, page grid and document title bar follow
+the theme, CPU stays idle.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ scribus/scribus.cpp | 46 +++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 44 insertions(+), 2 deletions(-)
+
+diff --git a/scribus/scribus.cpp b/scribus/scribus.cpp
+index 9061e3198..f795af563 100644
+--- a/scribus/scribus.cpp
++++ b/scribus/scribus.cpp
+@@ -305,6 +305,10 @@ bool previewDinUse;
+ bool printDinUse;
+ extern bool emergencyActivated;
+ 
++// Window color of the application palette last seen by the main window. A scratch space color
++// equal to it is the theme default and follows palette changes.
++static QColor lastPaletteWindowColor;
++
+ ScribusMainWindow::ScribusMainWindow() :
+ 	m_documentLogManager(DocumentLogManager::instance()),
+ 	m_prefsManager(PrefsManager::instance()),
+@@ -494,6 +498,7 @@ int ScribusMainWindow::initScMW(bool primaryMainWindow)
+ 	ScQApp->changeLabelVisibility(m_prefsManager.appPrefs.uiPrefs.showLabels);
+ 
+ 	setStyleSheet();
++	lastPaletteWindowColor = QApplication::palette().color(QPalette::Active, QPalette::Window);
+ 
+ 	connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, [this]()
+ 	{
+@@ -1934,9 +1939,46 @@ void ScribusMainWindow::changeEvent(QEvent *e)
+ 		// The main window gets its PaletteChange after the ApplicationPaletteChange that makes
+ 		// ADS reload its bundled stylesheet over ours, so reapply ours, with the new palette.
+ 		// Checked when run: the splash screen can process events before initScMW() has created
+-		// the widgets setStyleSheet() styles, viewToolBar being the last of them.
++		// the widgets used below, pagePalette (set in initPalettes()) being the last of them.
+ 		if (e->type() == QEvent::PaletteChange)
+-			QMetaObject::invokeMethod(this, [this]() { if (dockManager && viewToolBar) setStyleSheet(); }, Qt::QueuedConnection);
++			QMetaObject::invokeMethod(this, [this]() {
++				if (!dockManager || !viewToolBar || !pagePalette)
++					return;
++				setStyleSheet();
++
++				// QMdiSubWindow caches its title bar palette when it gets PaletteChange; after a
++				// system theme switch that cache can keep the previous theme, so refresh it.
++				const QList<QMdiSubWindow *> subWindows = mdiArea->subWindowList();
++				for (QMdiSubWindow* subWindow : subWindows)
++				{
++					QEvent paletteChange(QEvent::PaletteChange);
++					QCoreApplication::sendEvent(subWindow, &paletteChange);
++					subWindow->update();
++				}
++
++				// Let the default scratch space color follow the theme. slotPrefsOrg() handles a theme
++				// set in Preferences, but a system theme change in "auto" mode only arrives here.
++				const QColor windowColor = QApplication::palette().color(QPalette::Active, QPalette::Window);
++				if (windowColor == lastPaletteWindowColor)
++					return;
++				QColor& scratchColor = m_prefsManager.appPrefs.displayPrefs.scratchColor;
++				const bool followsTheme = (scratchColor == lastPaletteWindowColor || scratchColor == windowColor);
++				lastPaletteWindowColor = windowColor;
++				if (!followsTheme)
++					return;
++				scratchColor = windowColor;
++				pagePalette->updatePageGrid();
++				for (QMdiSubWindow* subWindow : subWindows)
++				{
++					ScribusWin* scw = dynamic_cast<ScribusWin *>(subWindow->widget());
++					if (!scw)
++						continue;
++					QPalette viewPalette = scw->view()->palette();
++					viewPalette.setBrush(QPalette::Window, scratchColor);
++					scw->view()->setPalette(viewPalette);
++					scw->view()->DrawNew();
++				}
++			}, Qt::QueuedConnection);
+ 		QMainWindow::changeEvent(e);
+ 	}
+ }
+-- 
+2.54.0 (Apple Git-157)
+

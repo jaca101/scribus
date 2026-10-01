@@ -1,0 +1,54 @@
+From f23ebf2d9d4bff000499b208a2c5b8474c87c126 Mon Sep 17 00:00:00 2001
+From: Javier Catania <jaca101@gmail.com>
+Date: Thu, 1 Oct 2026 12:44:16 +0200
+Subject: [PATCH 5/9] Reapply the Scribus stylesheet after a palette change,
+ once ADS is done
+
+When the system switches between light and dark mode, Qt emits
+QStyleHints::colorSchemeChanged before it updates the application palette
+(QGuiApplicationPrivate::handleThemeChanged). The existing workaround
+reapplied the Scribus stylesheet from that signal, i.e. with the old
+palette. ApplicationPaletteChange then reaches the main window as a
+posted event, and the ADS dock manager's event filter on that window
+reloads ADS's bundled stylesheet over the Scribus one. Result: after a
+system theme switch, active dock tabs kept ADS styling (grey tabs in dark
+mode) instead of the Scribus stylesheet.
+
+The main window receives its PaletteChange right after that
+ApplicationPaletteChange has gone through the ADS filter. Reapply the
+Scribus stylesheet from there, queued, so it wins over ADS and is built
+from the new palette. The call is skipped until initScMW() has created
+the styled widgets, since the splash screen processes events earlier.
+
+Verified on macOS 26 by switching system appearance dark -> light ->
+dark: active dock tabs now match the startup styling in both modes, and
+CPU stays idle (no refresh loop).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ scribus/scribus.cpp | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/scribus/scribus.cpp b/scribus/scribus.cpp
+index d88956947..9061e3198 100644
+--- a/scribus/scribus.cpp
++++ b/scribus/scribus.cpp
+@@ -1930,7 +1930,15 @@ void ScribusMainWindow::changeEvent(QEvent *e)
+ 	if (e->type() == QEvent::LanguageChange)
+ 		languageChange();
+ 	else
++	{
++		// The main window gets its PaletteChange after the ApplicationPaletteChange that makes
++		// ADS reload its bundled stylesheet over ours, so reapply ours, with the new palette.
++		// Checked when run: the splash screen can process events before initScMW() has created
++		// the widgets setStyleSheet() styles, viewToolBar being the last of them.
++		if (e->type() == QEvent::PaletteChange)
++			QMetaObject::invokeMethod(this, [this]() { if (dockManager && viewToolBar) setStyleSheet(); }, Qt::QueuedConnection);
+ 		QMainWindow::changeEvent(e);
++	}
+ }
+ 
+ void ScribusMainWindow::closeEvent(QCloseEvent *ce)
+-- 
+2.54.0 (Apple Git-157)
+

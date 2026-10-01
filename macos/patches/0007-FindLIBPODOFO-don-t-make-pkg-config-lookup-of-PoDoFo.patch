@@ -1,0 +1,35 @@
+From 22ace552aee2f178f56339541626b74343eb13ff Mon Sep 17 00:00:00 2001
+From: Javier Catania <jaca101@gmail.com>
+Date: Thu, 1 Oct 2026 12:44:17 +0200
+Subject: [PATCH 7/9] FindLIBPODOFO: don't make pkg-config lookup of PoDoFo
+ required
+
+PoDoFo is optional (WITH_PODOFO, find_package(LIBPODOFO) without
+REQUIRED), but FindLIBPODOFO.cmake called
+pkg_search_module(libpodofo REQUIRED ...), so configuring failed with
+"None of the required 'libpodofo;podofo' found" on any system without
+PoDoFo instead of just disabling PDF-in-AI import. Make the lookup QUIET;
+the module already reports LIBPODOFO_FOUND from the include/library
+search that follows.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ cmake/modules/FindLIBPODOFO.cmake | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/cmake/modules/FindLIBPODOFO.cmake b/cmake/modules/FindLIBPODOFO.cmake
+index ca910a89b..9d163f4d0 100644
+--- a/cmake/modules/FindLIBPODOFO.cmake
++++ b/cmake/modules/FindLIBPODOFO.cmake
+@@ -18,7 +18,7 @@ find_package(PkgConfig QUIET)
+ if(DEFINED LIBPODOFO_DIR_PREFIX)
+ 	set(ENV{PKG_CONFIG_PATH} "${LIBPODOFO_DIR_PREFIX}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
+ endif()
+-pkg_search_module(libpodofo REQUIRED libpodofo podofo)
++pkg_search_module(libpodofo QUIET libpodofo podofo)
+ 
+ if (DEFINED LIBPODOFO_DIR_PREFIX)
+ 	find_path(LIBPODOFO_INCLUDE_DIR
+-- 
+2.54.0 (Apple Git-157)
+

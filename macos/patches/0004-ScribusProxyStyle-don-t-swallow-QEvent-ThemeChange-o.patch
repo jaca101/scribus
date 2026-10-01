@@ -1,0 +1,43 @@
+From 2489098198ba09841e81071dac845f20d8ca7cc4 Mon Sep 17 00:00:00 2001
+From: Javier Catania <jaca101@gmail.com>
+Date: Thu, 1 Oct 2026 12:44:16 +0200
+Subject: [PATCH 4/9] ScribusProxyStyle: don't swallow QEvent::ThemeChange on
+ qApp
+
+The application event filter returned true for every ThemeChange sent to
+qApp. In Qt 6, QGuiApplicationPrivate::processThemeChanged() sends
+ThemeChange only to qApp, and QGuiApplication::event() forwards it to
+the style hints and to every window; QWidgetWindow then passes it to its
+widget, whose QWidget::event() re-polishes it and sends StyleChange.
+Consuming the event therefore stopped widgets from ever being notified of
+a system or Scribus-initiated theme change.
+
+Keep the Scribus handling (follow the system palette in "auto" mode) but
+let the event propagate. Verified on macOS: with this change the main
+window receives ThemeChange on every light/dark switch; before it never
+did. No visual difference was observed on macOS, where existing
+stylesheet workarounds already cover most widgets.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ scribus/ui/factories/scribusproxystyle.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/scribus/ui/factories/scribusproxystyle.cpp b/scribus/ui/factories/scribusproxystyle.cpp
+index bb74ce73f..b47d8f120 100644
+--- a/scribus/ui/factories/scribusproxystyle.cpp
++++ b/scribus/ui/factories/scribusproxystyle.cpp
+@@ -243,8 +243,8 @@ bool ScribusProxyStyle::eventFilter(QObject *object, QEvent *event)
+ 	{
+ 		if (PrefsManager::instance().appPrefs.uiPrefs.stylePalette == "auto" && !blockRefresh)
+ 			setApplicationTheme(ScribusProxyStyle::ApplicationTheme::System);
+-
+-		return true;
++		// Don't consume the event: QGuiApplication forwards ThemeChange from qApp to every
++		// window, which is how widgets get re-polished and repainted for the new theme.
+ 	}
+ 
+ 	return QObject::eventFilter(object, event);
+-- 
+2.54.0 (Apple Git-157)
+

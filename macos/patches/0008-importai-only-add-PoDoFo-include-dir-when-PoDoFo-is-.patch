@@ -1,0 +1,33 @@
+From 47059e7abcd17c05a2118fe7b408bb73ceaf52be Mon Sep 17 00:00:00 2001
+From: Javier Catania <jaca101@gmail.com>
+Date: Thu, 1 Oct 2026 12:44:17 +0200
+Subject: [PATCH 8/9] importai: only add PoDoFo include dir when PoDoFo is
+ available
+
+The AI import plugin added ${LIBPODOFO_INCLUDE_DIR} to its include
+directories unconditionally, in addition to the existing
+if(HAVE_PODOFO) block. Without PoDoFo that variable is
+LIBPODOFO_INCLUDE_DIR-NOTFOUND, and CMake's generate step fails with
+"Found relative path while evaluating include directories of importai".
+Drop the unconditional entry.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ scribus/plugins/import/ai/CMakeLists.txt | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/scribus/plugins/import/ai/CMakeLists.txt b/scribus/plugins/import/ai/CMakeLists.txt
+index f7556d39a..3a8d83f96 100644
+--- a/scribus/plugins/import/ai/CMakeLists.txt
++++ b/scribus/plugins/import/ai/CMakeLists.txt
+@@ -1,7 +1,6 @@
+ include_directories(
+ 	${CMAKE_SOURCE_DIR}
+ 	${CMAKE_SOURCE_DIR}/scribus
+-	${LIBPODOFO_INCLUDE_DIR}
+ 	${SCRIBUS_AUTOGEN_INCLUDE_PATH}
+ )
+ 
+-- 
+2.54.0 (Apple Git-157)
+

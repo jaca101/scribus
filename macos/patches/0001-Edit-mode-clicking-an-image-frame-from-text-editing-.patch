@@ -1,0 +1,41 @@
+From cea548752bfb8ae1d1edcca16503fa5554c33359 Mon Sep 17 00:00:00 2001
+From: Javier Catania <jaca101@gmail.com>
+Date: Thu, 1 Oct 2026 12:44:16 +0200
+Subject: [PATCH 1/9] Edit mode: clicking an image frame from text editing
+ returns to normal mode
+
+When a text frame was being edited and the user clicked on an image frame,
+CanvasMode_Edit::mousePressEvent kept modeEdit for the newly selected image
+frame. A subsequent drag then went through CanvasMode_Edit::mouseMoveEvent,
+which calls moveImageInFrame(), shifting the image offset inside the frame
+instead of moving the frame itself.
+
+Only keep content editing when the newly selected item is a text frame.
+Image frames now follow the same path as other items: switch to modeNormal
+and forward the press, so the drag moves the frame. Image content editing
+remains available via double click.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ scribus/canvasmode_edit.cpp | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/scribus/canvasmode_edit.cpp b/scribus/canvasmode_edit.cpp
+index 994b28c74..188ff4171 100644
+--- a/scribus/canvasmode_edit.cpp
++++ b/scribus/canvasmode_edit.cpp
+@@ -614,7 +614,10 @@ void CanvasMode_Edit::mousePressEvent(QMouseEvent *m)
+ 				if (SeleItem(m))
+ 				{
+ 					currItem = m_doc->m_Selection->itemAt(0);
+-					if ((currItem->isTextFrame()) || (currItem->isImageFrame()))
++					// Only text frames keep content editing when clicked from another frame.
++					// Image frames go back to normal mode so a drag moves the frame rather than
++					// the image offset; image content editing is still entered by double click.
++					if (currItem->isTextFrame())
+ 					{
+ 						m_view->requestMode(modeEdit);
+ 						wantNormal = false;
+-- 
+2.54.0 (Apple Git-157)
+
