@@ -10,10 +10,13 @@
 #   ./build-macos.sh run         # lanza el .app instalado
 #   ./build-macos.sh all         # configure + build + install
 #   ./build-macos.sh clean       # borra build/ e install/
+#   ./build-macos.sh app         # build release autónomo en dist/Scribus.app (Qt y librerías dentro)
+#   ./build-macos.sh applications # instala dist/Scribus.app en /Applications (la anterior va a la Papelera)
 #
 # Variables opcionales:
 #   BUILD_KIND=relwithdebug|debug|release   (por defecto relwithdebug, útil para lldb)
 #   JOBS=N                                   (por defecto: nº de núcleos)
+#   WANT_GM=0|1                              (GraphicsMagick; por defecto 1, `app` lo desactiva)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -30,6 +33,8 @@ PODOFO_VERSION="1.1.2"
 PODOFO_SRC="$ROOT/deps/podofo-src"
 PODOFO_PREFIX="$ROOT/deps/podofo"
 JOBS="${JOBS:-$(sysctl -n hw.ncpu)}"
+WANT_GM="${WANT_GM:-1}"
+DIST="$ROOT/dist/Scribus.app"
 
 BREW="$(brew --prefix)"
 
@@ -115,7 +120,7 @@ cmd_configure() {
 		-DCMAKE_OSX_SYSROOT="$(xcrun --sdk macosx --show-sdk-path)" \
 		-DPython3_EXECUTABLE="$py_prefix/bin/python3.14" \
 		-DWANT_NOOSG=1 \
-		-DWANT_GRAPHICSMAGICK=1 \
+		-DWANT_GRAPHICSMAGICK="$WANT_GM" \
 		-DWANT_CCACHE=1 \
 		-DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
 		"${podofo_flags[@]}" \
@@ -123,13 +128,62 @@ cmd_configure() {
 		$kind_flag
 
 	# compile_commands.json en la raíz del clon para clangd / sourcekit-lsp.
-	ln -sf "$BUILD/compile_commands.json" "$SRC/compile_commands.json"
+	[ "$BUILD" = "$ROOT/build" ] && ln -sf "$BUILD/compile_commands.json" "$SRC/compile_commands.json"
+	return 0
 }
 
 cmd_build()   { cmake --build "$BUILD" -j "$JOBS"; }
 cmd_install() { cmake --install "$BUILD"; }
 cmd_run()     { "$APP/Contents/MacOS/Scribus" "$@"; }
 cmd_clean()   { rm -rf "$BUILD" "$ROOT/install"; }
+
+# App autónoma para uso diario: build release aparte (build-app/), sin GraphicsMagick, empaquetada con
+# macdeployqt en dist/Scribus.app. GraphicsMagick queda fuera porque carga sus 96 decodificadores como
+# módulos desde Homebrew, que arrastran una segunda copia de libGraphicsMagick y abortan al arrancar.
+# Python (plugin Scripter) sigue viniendo de Homebrew: si faltara, solo dejaría de cargar ese plugin.
+cmd_app() {
+	BUILD="$ROOT/build-app"; APP="$ROOT/stage/Scribus.app"; BUILD_KIND=release; WANT_GM=0
+	cmd_configure
+	cmd_build
+	rm -rf "$ROOT/stage"
+	cmd_install
+	cmd_bundle
+}
+
+cmd_bundle() {
+	local plugins=()
+	rm -rf "$(dirname "$DIST")"; mkdir -p "$(dirname "$DIST")"
+	cp -R "$APP" "$DIST"
+	while IFS= read -r f; do plugins+=("-executable=$f"); done < <(find "$DIST/Contents/lib" -name '*.so' -o -name '*.dylib' | sort)
+	"$(brew --prefix qt)/bin/macdeployqt" "$DIST" "${plugins[@]}" \
+		-libpath="$PODOFO_PREFIX/lib" -libpath="$BREW/lib" -libpath="$BREW/Frameworks" \
+		-no-codesign -verbose=1 > "$ROOT/dist/macdeployqt.log" 2>&1 || true
+	# Plugins de Qt cuyas dependencias no se empaquetan (teclado virtual, PDF); Scribus no los usa.
+	rm -f "$DIST/Contents/PlugIns/platforminputcontexts/libqtvirtualkeyboardplugin.dylib" \
+		"$DIST/Contents/PlugIns/imageformats/libqpdf.dylib"
+	rmdir "$DIST/Contents/PlugIns/platforminputcontexts" 2>/dev/null || true
+	# Quitar rpaths del build (Homebrew, rutas relativas) y buscar solo dentro del bundle.
+	while IFS= read -r f; do
+		file "$f" | grep -q Mach-O || continue
+		for rp in $(otool -l "$f" | awk '/LC_RPATH/{getline; getline; print $2}' | grep -E "^$BREW|^/Users|^lib\$" || true); do
+			install_name_tool -delete_rpath "$rp" "$f" 2>/dev/null || true
+		done
+	done < <(find "$DIST/Contents" -type f)
+	install_name_tool -add_rpath @executable_path/../Frameworks "$DIST/Contents/MacOS/Scribus" 2>/dev/null
+	codesign --force --deep --sign - "$DIST" >/dev/null 2>&1
+	codesign --verify --deep --strict "$DIST"
+	echo "App autónoma lista: $DIST"
+}
+
+cmd_applications() {
+	[ -d "$DIST" ] || { echo "Primero: $0 app" >&2; exit 1; }
+	if [ -d /Applications/Scribus.app ]; then
+		osascript -e 'tell application "Finder" to delete POSIX file "/Applications/Scribus.app"' >/dev/null
+	fi
+	cp -R "$DIST" /Applications/Scribus.app
+	/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/Scribus.app
+	echo "Instalado en /Applications/Scribus.app"
+}
 
 case "${1:-all}" in
 	deps)      cmd_deps ;;
@@ -140,5 +194,7 @@ case "${1:-all}" in
 	run)       shift; cmd_run "$@" ;;
 	all)       cmd_configure; cmd_build; cmd_install ;;
 	clean)     cmd_clean ;;
-	*) sed -n '2,18p' "$0"; exit 1 ;;
+	app)       cmd_app ;;
+	applications) cmd_applications ;;
+	*) sed -n '2,21p' "$0"; exit 1 ;;
 esac
