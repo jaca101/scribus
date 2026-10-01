@@ -1930,7 +1930,15 @@ void ScribusMainWindow::changeEvent(QEvent *e)
 	if (e->type() == QEvent::LanguageChange)
 		languageChange();
 	else
+	{
+		// The main window gets its PaletteChange after the ApplicationPaletteChange that makes
+		// ADS reload its bundled stylesheet over ours, so reapply ours, with the new palette.
+		// Checked when run: the splash screen can process events before initScMW() has created
+		// the widgets setStyleSheet() styles, viewToolBar being the last of them.
+		if (e->type() == QEvent::PaletteChange)
+			QMetaObject::invokeMethod(this, [this]() { if (dockManager && viewToolBar) setStyleSheet(); }, Qt::QueuedConnection);
 		QMainWindow::changeEvent(e);
+	}
 }
 
 void ScribusMainWindow::closeEvent(QCloseEvent *ce)
