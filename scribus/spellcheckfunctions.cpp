@@ -13,10 +13,13 @@
 #include "spellcheckfunctions.h"
 #include "textframespellchecker.h"
 #include <hunspell/hunspell.hxx>
+#include <QElapsedTimer>
 #include <QFile>
+#include <QHash>
 #include <QMap>
 #include <QMutex>
 #include <QRegularExpression>
+#include <QSet>
 #include <QStringDecoder>
 #include <QStringEncoder>
 
@@ -47,6 +50,12 @@ class HunspellManager
 			if (m_dictionaries.contains(language))
 				return m_dictionaries[language];
 
+			// Don't hit the disk again for a language whose dictionary was just found missing.
+			// Misses expire so that a dictionary installed during the session is still picked up.
+			auto missIt = m_missingSince.constFind(language);
+			if (missIt != m_missingSince.constEnd() && !missIt->hasExpired(missingDictRetryMs))
+				return nullptr;
+
 			QString affPath = findDictionaryFile(language, ".aff");
 			QString dicPath = findDictionaryFile(language, ".dic");
 			QString altLanguage;
@@ -66,10 +75,16 @@ class HunspellManager
 				dicPath = findDictionaryFile(altLanguage, ".dic");
 				if (affPath.isEmpty() || dicPath.isEmpty())
 				{
-					qWarning() << "Dictionary files not found for language:" << language;
+					m_missingSince[language].start();
+					if (!m_warnedMissing.contains(language))
+					{
+						m_warnedMissing.insert(language);
+						qWarning() << "Dictionary files not found for language:" << language;
+					}
 					return nullptr;
 				}
 			}
+			m_missingSince.remove(language);
 
 			Hunspell* hunspell = new Hunspell(affPath.toUtf8().constData(), dicPath.toUtf8().constData());
 			const std::string encoding = hunspell->get_dict_encoding();
@@ -135,7 +150,11 @@ class HunspellManager
 			return QString();
 		}
 
+		static constexpr qint64 missingDictRetryMs = 30000;
+
 		QMap<QString, DictEntry*> m_dictionaries;
+		QHash<QString, QElapsedTimer> m_missingSince;
+		QSet<QString> m_warnedMissing;
 		QMutex m_mutex;
 };
 
